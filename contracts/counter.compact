@@ -1,0 +1,40 @@
+pragma language_version 0.23;
+
+import CompactStandardLibrary;
+
+// What's public: the count itself, and a commitment (a hash) tied to
+// whoever is allowed to increment it. Anyone can read both.
+//
+// What's private: the key that unlocks the counter. It's passed in as a
+// witness, which means it stays on the caller's machine and only the
+// proof leaves. The contract never sees the raw key, only the hash of it.
+//
+// setGuard() runs once. It takes the key, hashes it, and publishes the
+// hash on-chain with disclose() — that's the one deliberate exposure in
+// this contract. From then on, unlock() just checks that whoever calls
+// it can reproduce the same hash from their own key, without that key
+// ever touching the ledger.
+
+export ledger count: Counter;
+export ledger guardCommitment: Bytes<32>;
+
+witness secretKey(): Bytes<32>;
+
+constructor() {
+  count.increment(0);
+  guardCommitment = pad(32, "no-guard-set");
+}
+
+export circuit setGuard(): [] {
+  assert(guardCommitment == pad(32, "no-guard-set"), "This counter already has a guard set");
+  guardCommitment = disclose(persistentHash<Vector<1, Bytes<32>>>([secretKey()]));
+}
+
+export circuit unlock(): [] {
+  assert(guardCommitment != pad(32, "no-guard-set"), "No guard set yet — call setGuard first");
+  assert(
+    persistentHash<Vector<1, Bytes<32>>>([secretKey()]) == guardCommitment,
+    "Wrong key — counter stays where it is"
+  );
+  count.increment(1);
+}
