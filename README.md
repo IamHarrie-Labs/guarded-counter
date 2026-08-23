@@ -1,5 +1,7 @@
 # Guarded Counter
 
+[![CI](https://github.com/IamHarrie-Labs/guarded-counter/actions/workflows/ci.yml/badge.svg)](https://github.com/IamHarrie-Labs/guarded-counter/actions/workflows/ci.yml)
+
 > A counter that only moves for whoever can prove they hold the key — without that key ever touching the chain.
 
 ## Live Demo
@@ -20,17 +22,26 @@ Connect Lace (set to the Preview network) to try it — click "Set Guard" once t
 
 It's a counter with a lock on it. The first person to call `setGuard` picks a secret key and the contract stores a hash of it on-chain — not the key itself, just the hash. After that, anyone who wants to call `unlock` and bump the counter has to prove they know a key that hashes to the same value. If the hash doesn't match, the call fails and the counter stays put.
 
-Level 2 wires this up to an actual frontend: connect Lace, call `setGuard` or `unlock` straight from the browser, and watch the proof get generated locally before anything is submitted.
+Level 2 wires this up to an actual frontend: connect Lace, call `setGuard` or `unlock` straight from the browser, and watch the proof get generated locally before anything is submitted. Level 3 hardens it with a full test suite, CI on every push, and a product proposal in [PROPOSAL.md](PROPOSAL.md) for the survey tool this pattern becomes at Level 4.
 
 ## Privacy model
 
-- Public: the counter value, and the commitment (hash) of whoever's key is guarding it.
-- Private: the actual key. It's passed in as a witness, so it's only ever used inside the proof generated on the caller's own machine.
-- Proved without revealing: that the caller knows a key matching the stored commitment, without ever putting that key on-chain.
+**What an on-chain observer can learn:**
 
-## Privacy claim
+- The current counter value, and that it went up.
+- The guard commitment, which is a 32 byte hash published once by `setGuard`.
+- That a transaction arrived from some wallet address, and that it satisfied the contract's assertions.
+- That whoever called `unlock` held a key matching the stored commitment.
 
-An on-chain observer watching this contract sees: the counter incrementing, a hash committed once by `setGuard`, and transactions arriving from a wallet address. What they never see, in the transaction data or anywhere on-chain: the actual key. Every `unlock` call proves knowledge of a value matching the stored hash without that value ever being transmitted, logged, or stored anywhere outside the caller's own browser (it lives in `localStorage`, generated client-side, never sent in any request body).
+**What an on-chain observer cannot learn:**
+
+- The guard key itself. It is passed in as a private witness, so it is only ever read inside a proof generated on the caller's own machine. It is not in the transaction, not in the ledger, and not recoverable from the commitment.
+- Anything about the key from watching repeated calls. `unlock` can be called any number of times and the on-chain footprint is identical each time.
+- Whether two different `unlock` calls came from the same person or different people holding the same key.
+
+**What is proved without being revealed:** that the caller knows a preimage hashing to the stored commitment. That is the entire access control mechanism, and it never puts the key on chain.
+
+In the frontend, the key is generated client side with `crypto.getRandomValues`, kept in `localStorage`, and never placed in a request body. The only thing that leaves the browser is the proof.
 
 ## Tech stack
 
@@ -70,6 +81,22 @@ docker run -p 6300:6300 midnightntwrk/proof-server:8.1.0 midnight-proof-server -
 ```
 npm test
 ```
+
+Or with each test named, which is the output shown in the screenshot below:
+
+```
+npm run test:verbose
+```
+
+10 tests across three areas:
+
+- **Circuit logic** — `setGuard` publishes a commitment derived from the private key, refuses to run twice, and `unlock` only succeeds for a caller holding the matching key (and refuses entirely before a guard is set).
+- **State transitions** — the counter starts at zero with the commitment unset, increments once per successful unlock, and stays put when an unlock is rejected.
+- **Privacy** — the raw key never appears in ledger state, a caller without the key is rejected, and the same key always commits to the same value while different keys stay distinct.
+
+## CI/CD
+
+Every push and pull request to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), which checks out the repo, installs Node 22 and the Compact toolchain, compiles `counter.compact` from source, and runs the full test suite. The badge at the top of this README reflects the latest run.
 
 ## Run the frontend locally
 
