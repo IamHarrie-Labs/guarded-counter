@@ -6,6 +6,7 @@
   "scripts": {
     "compact": "compact compile contracts/counter.compact managed/counter",
     "test": "vitest run",
+    "test:verbose": "vitest run --reporter=verbose",
     "test:compile": "npm run compact && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "deploy": "tsx scripts/deploy.ts",
