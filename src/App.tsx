@@ -43,7 +43,7 @@ function App() {
           </div>
         </section>
 
-        <CircuitCall {...midnight} />
+        <CircuitCall {...midnight} isGuardSet={ledger?.isGuardSet ?? null} />
 
         <p className="network-note">
           Network: {midnight.networkId}
