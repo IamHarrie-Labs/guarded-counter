@@ -10,11 +10,13 @@ https://guarded-counter.vercel.app
 
 Connect Lace (set to the Preview network) to try it — click "Set Guard" once to lock the counter with a key generated in your browser, then "Unlock" to prove you hold it and bump the count.
 
+The guard key lives in your browser's local storage, not your wallet, and `setGuard` only ever runs once per contract. Whoever clicks it first locks the counter to their own browser — after that, "Set Guard" disables itself, and only that same browser's key will pass "Unlock." If it's already locked when you visit, that's expected; the button explains it instead of throwing an error.
+
 ## Contract address
 
 | Network | Address |
 |---------|---------|
-| Preview | 8b6708729b6a9c25948f1b7a3b94ff47b02f65787d5757f6a892cb291ecbd0ef |
+| Preview | e782744f40fe00b04bd45238bebd41d34e9b3048e1fd20b8fd50c5b2e4a6b5b9 |
 
 **A note on the network:** the frontend runs against Preview instead of Preprod. Preprod's own RPC/indexer has been down every time I've checked over several days — every attempt hangs indefinitely at wallet sync, before ever reaching a deploy. Midnight's own forum confirms Preprod is mid-reset for mainnet prep and "intermittently unavailable during testing." Preview is fully functional and this is the same contract, same circuits, same frontend — only the network target differs.
 
