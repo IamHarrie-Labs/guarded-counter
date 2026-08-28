@@ -17,6 +17,30 @@ import satisfies from "semver/functions/satisfies.js";
 import * as CounterContract from "../../managed/counter/contract/index.js";
 import { inMemoryPrivateStateProvider } from "../in-memory-private-state-provider";
 
+// The SDK's own error messages are wrapped in internal framing
+// ("Unexpected error executing scoped transaction '<unnamed>': Error: ...")
+// that means nothing to someone using the app. Strip that down to the
+// actual assert message, and translate the ones we can predict into plain
+// language, since they represent real contract behaviour, not bugs.
+function humanizeError(raw: string): string {
+  const assertMatch = raw.match(/failed assert:\s*(.+)$/);
+  const message = assertMatch ? assertMatch[1].trim() : raw;
+
+  if (message.includes("This counter already has a guard set")) {
+    return "This counter is already guarded by a key — Set Guard only works once. Try Unlock instead.";
+  }
+  if (message.includes("No guard set yet")) {
+    return "No key has been set yet. Click Set Guard first.";
+  }
+  if (message.includes("Wrong key")) {
+    return "That key doesn't match the one guarding this counter, so the proof failed as expected.";
+  }
+  if (raw.includes("disconnected from") || raw.includes("ECONNREFUSED")) {
+    return "Lost the connection mid-request. This is usually transient — try again.";
+  }
+  return message;
+}
+
 const NETWORK_ID = (import.meta.env.VITE_NETWORK_ID as string) || "preprod";
 const CONTRACT_ADDRESS = import.meta.env.VITE_CONTRACT_ADDRESS as string | undefined;
 const PRIVATE_STATE_ID = "counterPrivateState";
@@ -43,7 +67,18 @@ type WalletStatus = "disconnected" | "connecting" | "connected" | "error";
 export interface LedgerView {
   count: bigint;
   guardCommitment: string;
+  isGuardSet: boolean;
 }
+
+// Matches contracts/counter.compact's `pad(32, "no-guard-set")` sentinel —
+// the value the ledger holds before setGuard has ever been called.
+const UNSET_GUARD_HEX = toHex(
+  (() => {
+    const padded = new Uint8Array(32);
+    padded.set(new TextEncoder().encode("no-guard-set"));
+    return padded;
+  })(),
+);
 
 const COMPATIBLE_API_VERSION = "4.x";
 
@@ -163,7 +198,8 @@ export function useMidnight() {
         const tx = await (deployed.callTx as any)[circuit]();
         setLastResult(`Submitted. Transaction id: ${tx.public.txId}`);
       } catch (e) {
-        setError(e instanceof Error ? e.message : `Failed to call ${circuit}`);
+        const raw = e instanceof Error ? e.message : `Failed to call ${circuit}`;
+        setError(humanizeError(raw));
       } finally {
         setBusyCircuit(null);
       }
@@ -177,9 +213,11 @@ export function useMidnight() {
     const state = await providers.publicDataProvider.queryContractState(CONTRACT_ADDRESS);
     if (!state) return null;
     const ledgerState = CounterContract.ledger(state.data);
+    const guardCommitment = toHex(ledgerState.guardCommitment);
     return {
       count: ledgerState.count,
-      guardCommitment: toHex(ledgerState.guardCommitment),
+      guardCommitment,
+      isGuardSet: guardCommitment !== UNSET_GUARD_HEX,
     };
   }, [getProviders]);
 
