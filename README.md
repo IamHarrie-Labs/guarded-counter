@@ -114,7 +114,7 @@ Most on-chain access control just checks if you're a specific wallet address. I 
 
 ## Demo video
 
-https://drive.google.com/file/d/1f6jjt3UtLLpEBAbq41HIJkB9jyUsFhwx/view?usp=sharing
+https://drive.google.com/file/d/1X8G094y0o9922s8zEqa4BfwiFlBLhPnv/view?usp=drive_link
 
 ## Screenshots
 
