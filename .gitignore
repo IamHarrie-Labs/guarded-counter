@@ -7,6 +7,7 @@ dist/
 .midnight-state.json
 .midnight-wallet-state/
 midnight-level-db/
+.survey-roster-keys.*.json
 
 # local-only env overrides — .env.production stays tracked, it's just a
 # public network id + public contract address, no secrets
