@@ -12,6 +12,7 @@ import { indexerPublicDataProvider } from "@midnight-ntwrk/midnight-js-indexer-p
 import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-config-provider";
 import { CompiledContract } from "@midnight-ntwrk/midnight-js-protocol/compact-js";
 import { fromHex, toHex } from "@midnight-ntwrk/midnight-js-protocol/compact-runtime";
+import { Binding, Proof, SignatureEnabled, Transaction } from "@midnight-ntwrk/midnight-js-protocol/ledger";
 import satisfies from "semver/functions/satisfies.js";
 
 import * as CounterContract from "../../managed/counter/contract/index.js";
@@ -148,14 +149,21 @@ export function useMidnight() {
       walletProvider: {
         getCoinPublicKey: () => shieldedCoinPublicKey,
         getEncryptionPublicKey: () => shieldedEncryptionPublicKey,
+        // balanceUnsealedTransaction hands back a hex string, but the SDK
+        // needs a real Transaction object afterward (submitTx below calls
+        // .identifiers() on it to report the tx id for confirmation
+        // polling) — deserializing it back is what makes that possible.
+        // Returning the raw string here works for submission itself, but
+        // silently breaks that later lookup with a cryptic indexer error.
         balanceTx: async (tx: { serialize: () => Uint8Array }) => {
           const { tx: balanced } = await connectedApi.balanceUnsealedTransaction(toHex(tx.serialize()));
-          return balanced;
+          return Transaction.deserialize("signature", "proof", "binding", fromHex(balanced));
         },
       },
       midnightProvider: {
-        submitTx: async (tx: string) => {
-          await connectedApi.submitTransaction(tx);
+        submitTx: async (tx: Transaction<SignatureEnabled, Proof, Binding>) => {
+          await connectedApi.submitTransaction(toHex(tx.serialize()));
+          return tx.identifiers()[0];
         },
       },
     };
