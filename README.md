@@ -1,48 +1,49 @@
-# Anonymous Survey
+# Guarded Counter
 
 [![CI](https://github.com/IamHarrie-Labs/guarded-counter/actions/workflows/ci.yml/badge.svg)](https://github.com/IamHarrie-Labs/guarded-counter/actions/workflows/ci.yml)
 
-> A survey where every response is provably from an eligible member — and nobody, including whoever ran it, can tell which one.
+> A counter that only moves for whoever can prove they hold the key — without that key ever touching the chain.
 
 ## Live Demo
 
 https://guarded-counter.vercel.app
 
-Connect Lace (set to the Preview network), paste in a member key from the roster, and submit a response. Each key works exactly once — try it again and the contract rejects it, same as it would for a stranger trying to guess their way onto the roster.
+Connect Lace (set to the Preview network) to try it — click "Set Guard" once to lock the counter with a key generated in your browser, then "Unlock" to prove you hold it and bump the count.
+
+The guard key lives in your browser's local storage, not your wallet, and `setGuard` only ever runs once per contract. Whoever clicks it first locks the counter to their own browser — after that, "Set Guard" disables itself, and only that same browser's key will pass "Unlock." If it's already locked when you visit, that's expected; the button explains it instead of throwing an error.
 
 ## Contract address
 
 | Network | Address |
 |---------|---------|
-| Preview | d2549a8f19f9bea396225d835cd54b5df552acf12649bb64260ee6dcad8e6765 |
+| Preview | e782744f40fe00b04bd45238bebd41d34e9b3048e1fd20b8fd50c5b2e4a6b5b9 |
 
-**A note on the network:** the live demo runs against Preview instead of Preprod. Preprod's own RPC/indexer has been down every time I've checked over several weeks — every deploy attempt hangs indefinitely at wallet sync. Midnight's own forum confirms Preprod is mid-reset for mainnet prep and "intermittently unavailable during testing." Preview is fully functional and this is the same contract, same circuits, same frontend — only the network target differs.
+**A note on the network:** the frontend runs against Preview instead of Preprod. Preprod's own RPC/indexer has been down every time I've checked over several days — every attempt hangs indefinitely at wallet sync, before ever reaching a deploy. Midnight's own forum confirms Preprod is mid-reset for mainnet prep and "intermittently unavailable during testing." Preview is fully functional and this is the same contract, same circuits, same frontend — only the network target differs.
 
 ## What this does
 
-A survey with a fixed roster of 8 members, set once at deploy time. Each member gets a secret key generated for them — nobody, including the person running the survey, ever sees another member's key. To respond, a member proves their key hashes to one of the 8 commitments published on the roster, without saying which one. That same commitment doubles as a one-time nullifier: submit once and the contract remembers you responded, without remembering who you are.
+It's a counter with a lock on it. The first person to call `setGuard` picks a secret key and the contract stores a hash of it on-chain — not the key itself, just the hash. After that, anyone who wants to call `unlock` and bump the counter has to prove they know a key that hashes to the same value. If the hash doesn't match, the call fails and the counter stays put.
 
-No individual response is ever stored. Submitting just increments one of three tally counters — "Going well," "Mixed," or "Needs work" — so there's nothing on the ledger to unlink a person from an answer, because the two were never linked in the first place.
-
-This is the Level 4 build of the idea proposed in [PROPOSAL.md](PROPOSAL.md): an anonymous feedback tool for groups that already have a roster — teams, classes, DAOs — where the value isn't hiding from a stranger, it's hiding from the person who'll actually read the results.
+Level 2 wires this up to an actual frontend: connect Lace, call `setGuard` or `unlock` straight from the browser, and watch the proof get generated locally before anything is submitted. Level 3 hardens it with a full test suite, CI on every push, and a product proposal in [PROPOSAL.md](PROPOSAL.md) for the survey tool this pattern becomes at Level 4.
 
 ## Privacy model
 
 **What an on-chain observer can learn:**
 
-- The 8 member commitments, published once at deploy time.
-- The response count and the three tally totals.
-- That some committed member responded, and which of the three tallies grew — never which member.
+- The current counter value, and that it went up.
+- The guard commitment, which is a 32 byte hash published once by `setGuard`.
+- That a transaction arrived from some wallet address, and that it satisfied the contract's assertions.
+- That whoever called `unlock` held a key matching the stored commitment.
 
 **What an on-chain observer cannot learn:**
 
-- Any member's secret key. It's a private witness, read only inside a proof generated on that member's own machine — never in the transaction, never in the ledger.
-- Which of the 8 members submitted any given response.
-- Whether two responses came from the same member or two different ones (impossible anyway — one response per member is enforced on-chain).
+- The guard key itself. It is passed in as a private witness, so it is only ever read inside a proof generated on the caller's own machine. It is not in the transaction, not in the ledger, and not recoverable from the commitment.
+- Anything about the key from watching repeated calls. `unlock` can be called any number of times and the on-chain footprint is identical each time.
+- Whether two different `unlock` calls came from the same person or different people holding the same key.
 
-**What is proved without being revealed:** that the caller holds a key on this survey's roster, and that this key hasn't responded before. That's the entire access control and anti-double-voting mechanism, and neither ever puts a key on chain.
+**What is proved without being revealed:** that the caller knows a preimage hashing to the stored commitment. That is the entire access control mechanism, and it never puts the key on chain.
 
-Results stay hidden in the frontend until the response count reaches a threshold set at deploy time (3, for the live demo). That's a display choice, not a cryptographic seal — the tallies are always on the public ledger, so anyone querying the indexer directly could read them early. The point of the threshold is that a handful of early answers can't be pinned on individuals by process of elimination; it doesn't add a second layer of on-chain hiding beyond the anonymity that already exists between commitment and vote.
+In the frontend, the key is generated client side with `crypto.getRandomValues`, kept in `localStorage`, and never placed in a request body. The only thing that leaves the browser is the proof.
 
 ## Tech stack
 
@@ -63,13 +64,13 @@ cd guarded-counter
 npm install
 ```
 
-Compile the contracts:
+Compile the contract:
 
 ```
 npm run compact
 ```
 
-This generates `managed/counter` and `managed/survey` with the compiled circuits and keys.
+This generates the `managed/counter` folder with the compiled circuits and keys.
 
 Start the proof server in a separate terminal (leave it running):
 
@@ -83,20 +84,21 @@ docker run -p 6300:6300 midnightntwrk/proof-server:8.1.0 midnight-proof-server -
 npm test
 ```
 
-Or with each test named:
+Or with each test named, which is the output shown in the screenshot below:
 
 ```
 npm run test:verbose
 ```
 
-20 tests across both contracts, each split into circuit logic / state transitions / privacy:
+10 tests across three areas:
 
-- **Survey** — a committed member can respond once; a non-member is rejected; a second response from the same member is rejected; tallies match the chosen option; no raw member key ever appears in ledger state.
-- **Counter** (Level 1-3 foundation) — `setGuard` publishes a commitment and refuses to run twice; `unlock` only succeeds for a caller holding the matching key; the raw key never appears in ledger state.
+- **Circuit logic** — `setGuard` publishes a commitment derived from the private key, refuses to run twice, and `unlock` only succeeds for a caller holding the matching key (and refuses entirely before a guard is set).
+- **State transitions** — the counter starts at zero with the commitment unset, increments once per successful unlock, and stays put when an unlock is rejected.
+- **Privacy** — the raw key never appears in ledger state, a caller without the key is rejected, and the same key always commits to the same value while different keys stay distinct.
 
 ## CI/CD
 
-Every push and pull request to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), which checks out the repo, installs Node 22 and the Compact toolchain, compiles both contracts from source, and runs the full test suite. The badge at the top of this README reflects the latest run.
+Every push and pull request to `main` runs [`.github/workflows/ci.yml`](.github/workflows/ci.yml), which checks out the repo, installs Node 22 and the Compact toolchain, compiles `counter.compact` from source, and runs the full test suite. The badge at the top of this README reflects the latest run.
 
 ## Run the frontend locally
 
@@ -104,19 +106,11 @@ Every push and pull request to `main` runs [`.github/workflows/ci.yml`](.github/
 npm run dev
 ```
 
-Opens at `http://localhost:5173`. `VITE_NETWORK_ID`, `VITE_SURVEY_CONTRACT_ADDRESS`, and `VITE_CONTRACT_ADDRESS` in `.env` control which network and contracts the UI points at — make sure Lace is unlocked and set to the matching network.
+Opens at `http://localhost:5173`. `VITE_NETWORK_ID` and `VITE_CONTRACT_ADDRESS` in `.env` control which network and contract the UI points at — make sure Lace is unlocked and set to the matching network.
 
-## Deploy your own survey
+## Initial idea
 
-```
-npm run deploy-survey -- --network preview
-```
-
-Generates 8 fresh member keys, deploys with their commitments baked in, and writes the keys to a local `.survey-roster-keys.<network>.json` (gitignored — never commit it). Distribute one key per real member out of band, then delete the unused ones from your copy.
-
-## Where this came from
-
-Levels 1-3 built the guarded counter as a rehearsal: prove you hold a secret without ever showing it, and the chain only ever sees a hash of it. This survey is that same pattern turned into an actual product — the kind of access control that matters anywhere you need to prove you're allowed to do something without revealing who you are, not just for counters but for feedback that people will only give honestly if they know it can't be traced back to them.
+Most on-chain access control just checks if you're a specific wallet address. I wanted to try the opposite: you prove you know a secret without ever showing it, and the chain only ever sees a hash of it. A counter is about the simplest thing you can gate, so that's what I built first. The real idea behind it is anywhere you need to prove you're allowed to do something without revealing who you are, like private raffles, gated communities, or commit reveal games.
 
 ## Demo video
 
