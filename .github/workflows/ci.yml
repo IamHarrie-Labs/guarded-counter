@@ -31,10 +31,8 @@ jobs:
       - name: Install the Compact compiler
         run: compact update
 
-      - name: Compile the contracts
-        run: |
-          compact compile contracts/counter.compact managed/counter
-          compact compile contracts/survey.compact managed/survey
+      - name: Compile the contract
+        run: compact compile contracts/counter.compact managed/counter
 
       - name: Run tests
         run: npm test
