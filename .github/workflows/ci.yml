@@ -29,7 +29,10 @@ jobs:
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Install the Compact compiler
-        run: compact update
+        # Pinned rather than "latest": the toolchain has moved fast enough
+        # that grabbing latest here silently broke CI once already, ahead
+        # of the SDK packages this project depends on catching up to it.
+        run: compact update 0.31.0
 
       - name: Compile the contract
         run: compact compile contracts/counter.compact managed/counter
